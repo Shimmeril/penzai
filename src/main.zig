@@ -8,6 +8,7 @@ const field_path = @import("field_path.zig");
 // Consume tokenise
 const cli_parse = @import("cli_parse.zig");
 const autocomplete = @import("autocomplete.zig");
+const autocomplete_tests = @import("autocomplete_tests.zig");
 const util = @import("util.zig");
 
 const fs = std.fs;
@@ -47,40 +48,7 @@ const MyStruct = struct {
 
 // run: zig build run -- hello asdfasdf --bar 10 qwer2
 // run: zig run main.zig -- --baz 155 a b c
-// run: zig test -freference-trace %
-
-pub fn main() !void {
-
-    //const asdf = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType { .Static = 1024 });
-    //asdf.write(&asdf, "hello");
-    //std.debug.print("");
-
-    if (true) {
-        const info = comptime autocomplete.construct_completion("penzai --baz \t", "64");
-        try handle_comp_line(MyStruct, std.io.getStdErr(), info);
-
-    } else {
-        if (std.os.getenv("COMP_LINE")) |_| {
-            // This will stall if you do not have something reading the fifo pipe
-            const fifo_pipe = try std.fs.cwd().openFile("test", .{ .mode = fs.File.OpenMode.write_only });
-            defer fifo_pipe.close();
-
-            const info = autocomplete.AutoCompleteInfo.from_env();
-            try handle_comp_line(MyStruct, fifo_pipe, info);
-            std.process.exit(0);
-        }
-
-        const allocator = std.heap.page_allocator;
-        const args = try std.process.argsAlloc(allocator);
-        defer std.process.argsFree(allocator, args);
-
-        var clap: MyStruct = undefined;
-        init_clap_struct(MyStruct, &clap);
-        parse_command_line(MyStruct, &clap, args);
-        cli_parse.print_parsed_struct(MyStruct, &clap);
-        //_ = parsed_args;
-    }
-}
+//run: zig build test -freference-trace
 
 // @TODO: to just make auto completion work
 
@@ -347,5 +315,39 @@ fn init_clap_struct(comptime Spec: type, clap: *Spec) void {
 
 test "hello" {
     std.debug.print("=\n", .{});
+
+    _ = autocomplete_tests; // Include this as a target for refAllDeclsRecursive
+
     std.testing.refAllDeclsRecursive(@This());
 }
+
+test "main" {
+    if (true) {
+        const info = comptime autocomplete.construct_completion("penzai --baz \t", "64");
+        try handle_comp_line(MyStruct, std.io.getStdErr(), info);
+
+    } else {
+        if (std.os.getenv("COMP_LINE")) |_| {
+            // This will stall if you do not have something reading the fifo pipe
+            const fifo_pipe = try std.fs.cwd().openFile("test", .{ .mode = fs.File.OpenMode.write_only });
+            defer fifo_pipe.close();
+
+            const info = autocomplete.AutoCompleteInfo.from_env();
+            try handle_comp_line(MyStruct, fifo_pipe, info);
+            std.process.exit(0);
+        }
+
+        const allocator = std.heap.page_allocator;
+        const args = try std.process.argsAlloc(allocator);
+        defer std.process.argsFree(allocator, args);
+
+        var clap: MyStruct = undefined;
+        init_clap_struct(MyStruct, &clap);
+        parse_command_line(MyStruct, &clap, args);
+        cli_parse.print_parsed_struct(MyStruct, &clap);
+        //_ = parsed_args;
+    }
+
+    std.debug.print("=== Exit 0 ===\n\n", .{});
+}
+

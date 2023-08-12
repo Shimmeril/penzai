@@ -82,20 +82,16 @@ test "mock_bash_completions" {
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const cwd_absolute = std.fs.cwd().realpath(".", &buffer) catch |err| std.debug.panic("Error: {?}\n Increase buffer size?", .{err});
         const basename = std.fs.path.basename(cwd_absolute);
-        if (std.mem.eql(u8, "penzai", basename)) {
+        if (!std.mem.eql(u8, "src", basename)) {
             // You are probably running `zig build test` for this branch
             std.process.changeCurDir("src") catch |err| std.debug.panic("Could not cd to 'src': {?}", .{err});
             //std.debug.print("{s}", .{(try bash(allocator, "pwd")).stdout});
-        } else {
-            std.debug.assert(std.mem.eql(u8, "src", basename));
         }
-        // @TODO: assert that the file named %[FIFO_PIPE_NAME] exists (maybe this should just be in the build.zig script)
-        //std.debug.assert()
-    }
 
-    _ = std.fs.cwd().stateFile(FIFO_PIPE_NAME) catch  {
-        std.debug.panic("FIFO pipe 'src/" ++ FIFO_PIPE_NAME "' does not exist");
-    };
+        _ = std.fs.cwd().statFile(FIFO_PIPE_NAME) catch  {
+            std.debug.panic("FIFO pipe 'src/" ++ FIFO_PIPE_NAME ++ "' does not exist", .{});
+        };
+    }
 
 
     var data: Shared = undefined;
@@ -124,6 +120,7 @@ test "mock_bash_completions" {
     inline for (AUTO_COMPLETE_TEST_CASES) |tc| {
         data.bytes_read = 0;
 
+        std.debug.print("Autocomplete test: |{s}|\n", .{tc[0]});
         const handle = try std.Thread.spawn(.{}, struct {
             fn f(d: *Shared) !void {
                 const fifo_pipe = try std.fs.cwd().openFile(FIFO_PIPE_NAME, .{ .mode = std.fs.File.OpenMode.read_only });

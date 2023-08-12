@@ -155,10 +155,12 @@ pub fn tokeniseStruct(comptime T: type, comptime path: []const []const u8) Token
                 return std.mem.lessThan(u8, lhs[1], rhs[1]);
             }
         };
-        //// Since zig 0.11 with implementation of pdqsort, this no longer runs at comptime
-        // std.mem.sortUnstable(FieldExtract, unsorted[0..adjusted_len], {}, sorter.lessThan);
 
-        // Bubble sort
+        // Broken as of since zig 0.10 -> 0.11
+        // https://github.com/ziglang/zig/issues/16454
+        //std.mem.sortUnstable(FieldExtract, unsorted[0..adjusted_len], {}, sorter.lessThan);
+
+        // Replacement bubble sort
         for (0..adjusted_len) |j| {
             for (j + 1..adjusted_len) |k| {
                 if (sorter.lessThan(undefined, unsorted[k], unsorted[j])) {
