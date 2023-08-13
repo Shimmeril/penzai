@@ -7,6 +7,9 @@ const util = @import("util.zig");
 pub const CompletionFunction = fn (allocator: std.mem.Allocator) []const []const u8;
 
 
+// Does not have to be inline because given a specific reified enum, this
+// function will construct the same array. For different reified enums, this
+// will monomorphise to different functions.
 pub fn enum_names(comptime Enum: type)[]const []const u8 {
     const fields = @typeInfo(Enum).Enum.fields;
     var names: [fields.len][]const u8 = undefined;
@@ -16,7 +19,6 @@ pub fn enum_names(comptime Enum: type)[]const []const u8 {
     return &names;
 }
 
-// Must be inline as we are giving pointers to data iternal to us
 pub fn enum_completion(comptime names: []const []const u8) CompletionFunction {
     return struct {
         fn f(_: std.mem.Allocator) []const []const u8 {

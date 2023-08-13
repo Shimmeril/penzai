@@ -8,7 +8,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 const field_path = @import("field_path.zig");
-const tokenise = @import("tokenise.zig");
+const tokenise = @import("s1_tokenise.zig");
 const util = @import("util.zig");
 
 // ARGS_MAX is a thing, this should be able to hold at least ARGS_MAX
@@ -29,7 +29,8 @@ pub fn contains(comptime T: type, comptime map_fn: fn (T) []const u8, comptime h
 }
 
 // run: zig run main.zig -- --baz 20000000000000000000000000000000000000000000000
-//run: zig run -freference-trace main.zig -- hello asdfasdf --bar 10 qwer2
+// run: zig run -freference-trace main.zig -- hello asdfasdf --bar 10 qwer2
+//run: zig build test -freference-trace
 
 const ParseArgError = error{
     MissingArguments,
@@ -44,7 +45,7 @@ pub fn parseArgs(comptime Spec: type, s: *Spec, args: [][]u8) ?TestError {
     //        1. Mark parsed arguments as null
     //        2. Compact the array on a second pass to leave only the positionals?
 
-    const spec = comptime tokenise.unwrapTokeniseResult(tokenise.tokeniseStruct(Spec, &[0][]u8{}));
+    const spec = comptime tokenise.unwrap_tokenise_result(tokenise.tokenise(Spec, &[0][]u8{}));
 
     if (true) {
         inline for (spec.options) |a| {
@@ -87,7 +88,7 @@ pub fn parseArgs(comptime Spec: type, s: *Spec, args: [][]u8) ?TestError {
     //return .{ .Ok = ret };
 }
 
-pub fn parse_module(comptime Spec: type, comptime mod: tokenise.TokenisedSpec, ret: *Spec, args: ArgList) ?TestError {
+pub fn parse_module(comptime Spec: type, comptime mod: tokenise.TokenisedSubcommand, ret: *Spec, args: ArgList) ?TestError {
     const Field = struct { enum { Subcommand, Option }, ArgIndex, ArgItem };
 
     // @TODO: Look into iterator syntax?
@@ -272,7 +273,7 @@ pub fn move_cursor_post_field_parse(
 
 // This also serves as a use-case
 pub fn print_parsed_struct(comptime T: type, s: *const T) void {
-    const spec = comptime tokenise.unwrapTokeniseResult(tokenise.tokeniseStruct(T, &[0][]u8{}));
+    const spec = comptime tokenise.unwrap_tokenise_result(tokenise.tokenise(T, &[0][]u8{}));
 
     const indent = 1;
     std.debug.print("{{\n", .{});
@@ -335,18 +336,18 @@ fn printHelpLine(
 
 //const helper = struct {[]const u8};
 
-pub fn help(comptime Spec: type, name: []const u8, comptime is_print_type: bool) void {
+pub fn help(comptime Spec: type, name: []const u8, config: tokenise.Config) void {
     //const fields = @typeInfo(Spec).Struct.fields;
     //const asdf = helper{""};
-    const spec = comptime tokenise.unwrapTokeniseResult(tokenise.tokeniseStruct(Spec, &[0][]u8{}));
+    const spec = comptime tokenise.unwrap_tokenise_result(tokenise.tokenise(Spec, .{}));
 
     const lens = comptime lens: { // @TODO: Do we want to do ut8 grapheme terminal len?
         var max_field: usize = 0;
         var max_type: usize = 0;
-        inline for (spec.subcommands) |cmd| {
-            max_field = @max(max_field, cmd.param_path[cmd.param_path.len - 1].len);
+        inline for (spec.ast.subcommands) |cmd| {
+            max_field = @max(max_field, cmd.struct_path[cmd.struct_path.len - 1].len);
         }
-        inline for (spec.options) |opt| {
+        inline for (spec.ast.options) |opt| {
             max_field = @max(max_field, opt.name.len + 1); // + 1 for '-'
             max_type = @max(max_type, opt.type_name.len);
         }
@@ -355,21 +356,21 @@ pub fn help(comptime Spec: type, name: []const u8, comptime is_print_type: bool)
 
     std.debug.print("Usage: {s}\n", .{name});
 
-    if (spec.subcommands.len > 0) {
+    if (spec.ast.subcommands.len > 0) {
         std.debug.print("\nCommands:\n\n", .{});
-        inline for (spec.subcommands) |parsed_spec| {
+        inline for (spec.ast.subcommands) |parsed_spec| {
             std.debug.print("  ", .{});
             //std.debug.print("{s}  ", .{parsed_spec.param_path});
-            printHelpLine(is_print_type, parsed_spec.name(), "", parsed_spec.description, lens[0], lens[1]);
+            printHelpLine(config.help_print_types, parsed_spec.name(), "", parsed_spec.description, lens[0], lens[1]);
         }
     }
 
-    if (spec.options.len > 0) {
+    if (spec.ast.options.len > 0) {
         std.debug.print("\nGeneral Options:\n\n", .{});
-        inline for (spec.options) |token| {
+        inline for (spec.ast.options) |token| {
             std.debug.print("  -", .{});
             //std.debug.print("{s}  ", .{token.param_path});
-            printHelpLine(is_print_type, token.name, token.type_name, token.description, lens[0], lens[1]);
+            printHelpLine(config.help_print_types, token.name, token.type_name, token.description, lens[0], lens[1]);
         }
     }
 }

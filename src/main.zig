@@ -2,7 +2,7 @@
 
 const std = @import("std");
 // Compile-time error
-const tokenise = @import("tokenise.zig");
+const tokenise = @import("s1_tokenise.zig");
 const field_path = @import("field_path.zig");
 
 // Consume tokenise
@@ -12,6 +12,11 @@ const autocomplete_tests = @import("autocomplete_tests.zig");
 const util = @import("util.zig");
 
 const fs = std.fs;
+
+pub const IterToString = util.IterToString;
+pub const CompLineIter = autocomplete.CompLineIter;
+pub const ArrayIter = util.ArrayIter;
+pub const help = cli_parse.help;
 
 // Define a struct with some fields
 const MyStruct = struct {
@@ -30,7 +35,7 @@ const MyStruct = struct {
     comptime baz__help: []const u8 = "yoyo",
     comptime baz__comp: autocomplete.CompletionFunction = struct {
         fn comp(_: std.mem.Allocator) []const []const u8 {
-            return &[_][]const u8{"hello", "world"};
+            return &[_][]const u8{ "hello", "world" };
         }
     }.comp,
     // @NOTE: try experimenting with different usizes, causes this to fail on print("{!}")
@@ -44,7 +49,6 @@ const MyStruct = struct {
 // penzai hello "a\ <tab>  -> |../zig-out/src| |penzai| |a\ |    |hello|
 // penzai hello "a b"<tab> -> |../zig-out/src| |penzai| |a b|   |hello|
 // penzai hello "a b"<tab> -> |../zig-out/src| |penzai| |"a b"| |hello|
-
 
 // run: zig build run -- hello asdfasdf --bar 10 qwer2
 // run: zig run main.zig -- --baz 155 a b c
@@ -62,15 +66,15 @@ const ParseArgError = error{
 const ParseError = ParseArgError || std.fmt.ParseFloatError || std.fmt.ParseIntError;
 
 pub fn parse_args(comptime Spec: type, ret: *Spec, args: util.IterToString) ?ClapErr {
-    const spec = comptime tokenise.unwrapTokeniseResult(tokenise.tokeniseStruct(Spec, &[0][]u8{}));
-    return parse_module(Spec, spec, ret, args);
+    const spec = comptime tokenise.unwrap_tokenise_result(tokenise.tokenise(Spec, .{}));
+    return parse_module(Spec, spec.ast, ret, args);
 }
 
 // @TODO: standarise on either module or subcommand terminology
 // Should be monomorphised to one function per module %[mod]
 // @TODO: Maybe this can be monomorphised to only one function per spec if we
 //        spec if
-pub fn parse_module(comptime Spec: type, comptime mod: tokenise.TokenisedSpec, ret: *Spec, arg_iter: util.IterToString) ?ClapErr {
+pub fn parse_module(comptime Spec: type, comptime mod: tokenise.TokenisedSubcommand, ret: *Spec, arg_iter: util.IterToString) ?ClapErr {
     var bound_index: u16 = 0;
     var i: u16 = 0;
     var is_subcommand_seen = false;
@@ -107,7 +111,6 @@ pub fn parse_module(comptime Spec: type, comptime mod: tokenise.TokenisedSpec, r
                 break :blk true;
             }
         };
-
         if (is_positional) {
             peek = null;
             const index = i;
@@ -127,7 +130,7 @@ const ClapOk = struct {
 
 const ClapErr = struct {
     err: ParseError,
-    completion_options:  []const []const u8,
+    completion_options: []const []const u8,
     message: []const u8,
 };
 
@@ -135,14 +138,13 @@ const Result = union(util.Result) {
     Ok: ClapOk,
     Err: ClapErr,
 };
-    
 
 // @TODO: make this monomorphise to only one instance by putting all fields
-//        in a single array and having the tokenise.TokenisedSpec instead use
+//        in a single array and having the tokenise.TokenisedSubcommand instead use
 //        subarrays into this larger array
 fn parse_all_options(
     comptime Spec: type,
-    comptime options_spec: []const tokenise.FieldToken,
+    comptime options_spec: []const tokenise.TokenisedOption,
     s: *Spec,
     name: []const u8,
     arg_iter: util.IterToString,
@@ -150,7 +152,7 @@ fn parse_all_options(
     inline for (0.., options_spec) |j, opt| {
         _ = j;
         if (std.mem.eql(u8, opt.name, name)) {
-            std.debug.print("Set optional: {s}\n", .{opt.name});
+            std.debug.print("Set option: {s}\n", .{opt.name});
             return parse_option(Spec, opt, s, arg_iter);
         }
     }
@@ -158,22 +160,23 @@ fn parse_all_options(
     return .{ .Ok = .{ .is_positional = true, .peek = null } };
 }
 
-
 //inline fn next(arg_iter: util.IterToString, completion_options: []const []const u8) Result  {
-inline fn next(arg_iter: util.IterToString, comptime option_spec: tokenise.FieldToken) union(util.Result) { Ok: util.IterToString.Item, Err: ClapErr }  {
+inline fn next(arg_iter: util.IterToString, comptime option_spec: tokenise.TokenisedOption) union(util.Result) { Ok: util.IterToString.Item, Err: ClapErr } {
     //return if (arg_iter.next()) |arg| .{ .Ok = .{
     //    .is_positional = undefined,
     //    .peek = arg,
     //} } else .{ .Err = .{
 
     //_ = option_spec;
-    return if (arg_iter.next()) |arg| .{ .Ok = arg } else .{ .Err = .{
-        .err = ParseError.MissingArguments,
-        // @TODO: do we want to .always_inline?
-        .completion_options = option_spec.completion_function(std.heap.page_allocator),
-        //.completion_options = @call(.auto, option_spec.completion.*, .{}),
-        .message = "Not enough arguments",
-    } };
+    return if (arg_iter.next()) |arg| .{ .Ok = arg } else .{
+        .Err = .{
+            .err = ParseError.MissingArguments,
+            // @TODO: do we want to .always_inline?
+            .completion_options = option_spec.completion(std.heap.page_allocator),
+            //.completion_options = @call(.auto, option_spec.completion.*, .{}),
+            .message = "Not enough arguments",
+        },
+    };
 }
 
 //inline fn errorify(comptime T: type, result: T) error{ NeverUse }!field_path.select_field_type_by_name(T, "Ok").Ok {
@@ -187,11 +190,11 @@ inline fn next(arg_iter: util.IterToString, comptime option_spec: tokenise.Field
 // Reduce right drift
 inline fn parse_option(
     comptime Spec: type,
-    comptime option_spec: tokenise.FieldToken,
+    comptime option_spec: tokenise.TokenisedOption,
     s: *Spec,
     arg_iter: util.IterToString,
 ) Result {
-    const field_pointer = field_path.pointToField(Spec, s, option_spec.param_path).Ok;
+    const field_pointer = field_path.pointToField(Spec, s, option_spec.struct_path).Ok;
     switch (option_spec.type_spec) {
         inline .Int => |info| {
             const arg = switch (next(arg_iter, option_spec)) {
@@ -202,14 +205,13 @@ inline fn parse_option(
             const ty = @Type(.{ .Int = info });
             const num = std.fmt.parseInt(ty, arg, 10) catch |err| {
                 std.debug.assert(err == std.fmt.ParseIntError.Overflow or err == std.fmt.ParseIntError.InvalidCharacter);
-                std.debug.print("{any}", .{option_spec.completion});
                 return .{ .Err = .{
                     .err = err,
-                    .completion_options = option_spec.completion_function(std.heap.page_allocator),
+                    .completion_options = option_spec.completion(std.heap.page_allocator),
                     .message = std.fmt.comptimePrint("--" ++ option_spec.name ++ " requires a number argument between {d} and {d}", .{
                         std.math.minInt(ty),
                         std.math.maxInt(ty),
-                    })
+                    }),
                 } };
             };
             field_pointer.* = num;
@@ -241,8 +243,8 @@ inline fn parse_option(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn handle_comp_line(comptime Spec: type, writer: anytype, info: autocomplete.AutoCompleteInfo)!void {
-    if (true) {
+fn handle_comp_line(comptime Spec: type, writer: anytype, info: autocomplete.AutoCompleteInfo) !void {
+    if (false) {
         // For debugging run `mkfifo "test"`. You can see output by `tail -f "test"`
         var buf: [10000]u8 = undefined;
         _ = try writer.write(try info.printBuf(&buf));
@@ -255,11 +257,11 @@ fn handle_comp_line(comptime Spec: type, writer: anytype, info: autocomplete.Aut
         const program_name = iter.next(); // Skip the name of the auto completion keyword (usually the name the program, not an argument that is meant to be processed)
         _ = program_name;
 
-        var clap: Spec = undefined; 
+        var clap: Spec = undefined;
         init_clap_struct(MyStruct, &clap);
         if (parse_args(Spec, &clap, iter)) |err| {
             // NOTE: to see an example of proper output do `compgen -A file` in bash
-            _ = try writer.write("\n=== completion options ===\n");
+           _ = try writer.write("\n=== completion options ===\n");
             for (err.completion_options) |entry| {
                 _ = try writer.write(entry);
                 _ = try writer.write("\n");
@@ -279,7 +281,7 @@ fn handle_comp_line(comptime Spec: type, writer: anytype, info: autocomplete.Aut
     } else {}
 }
 
-fn parse_command_line(comptime Spec: type, clap: *Spec, args: []const [:0]const u8)void {
+fn parse_command_line(comptime Spec: type, clap: *Spec, args: []const [:0]const u8) void {
     const program_name = args[0][if (std.mem.lastIndexOf(u8, args[0], "/")) |slash_idx| slash_idx + 1 else 0..];
     if (true) cli_parse.help(MyStruct, program_name, true);
 
@@ -294,23 +296,28 @@ fn parse_command_line(comptime Spec: type, clap: *Spec, args: []const [:0]const 
     }
 }
 
-
-
 /// In debug mode we initialise to 0xAA for all values, when using
 /// cli_parse.printParsedStruct() or indeed any regular usage, this will error
 /// on null pointers
-fn init_clap_struct(comptime Spec: type, clap: *Spec) void {
-    const spec = comptime tokenise.unwrapTokeniseResult(tokenise.tokeniseStruct(Spec, &[0][]u8{}));
+pub fn init_clap_struct(comptime Spec: type, clap: *Spec) void {
+    //const spec = comptime tokenise.unwrap_tokenise_result(tokenise.tokenise(Spec, .{}));
 
-    // @TODO: check if this is optional or not, if not then do not assign null
-    field_path.pointToField(Spec, clap, spec.subcommand_path.?).Ok.* = null;
-
-    inline for (spec.options) |option_spec| {
-        if (option_spec.is_optional) {
-            field_path.pointToField(Spec, clap, option_spec.param_path).Ok.* = null;
+    inline for (@typeInfo(Spec).Struct.fields) |field| {
+        if (@typeInfo(field.type) == .Optional) {
+            @field(clap, field.name) = null;
         }
-        //std.debug.print("\n", .{});
     }
+
+    //// @TODO: check if this is optional or not, if not then do not assign null
+    //// If subcommand is required
+    //if (spec.is_required) field_path.pointToField(Spec, clap, path).Ok.* = null;
+
+    //inline for (spec.options) |option_spec| {
+    //    if (option_spec.is_optional) {
+    //        field_path.pointToField(Spec, clap, option_spec.param_path).Ok.* = null;
+    //    }
+    //    //std.debug.print("\n", .{});
+    //}
 }
 
 test "hello" {
@@ -325,7 +332,6 @@ test "main" {
     if (true) {
         const info = comptime autocomplete.construct_completion("penzai --baz \t", "64");
         try handle_comp_line(MyStruct, std.io.getStdErr(), info);
-
     } else {
         if (std.os.getenv("COMP_LINE")) |_| {
             // This will stall if you do not have something reading the fifo pipe
@@ -347,7 +353,6 @@ test "main" {
         cli_parse.print_parsed_struct(MyStruct, &clap);
         //_ = parsed_args;
     }
-
     std.debug.print("=== Exit 0 ===\n\n", .{});
+    help(MyStruct, "penzai", .{});
 }
-
